@@ -1,9 +1,9 @@
 # Secrets
 .env
 
-# Data (tracked via DVC or externally)
-data/raw/
-data/processed/
+# Data — all tracked in git
+# (exclude only the .cache folder created by requests-cache)
+.cache/
 
 # MLflow artifacts
 mlflow_runs/

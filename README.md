@@ -42,15 +42,31 @@ representing tens of millions of dollars in operational costs.
 
 ![Data Coverage](assets/eda_01_data_coverage.png)
 
+#### Load Data
+
 | Source | City | Period | Frequency | Unit | Zones |
 |---|---|---|---|---|---|
-| SCADA Amendis (Kaggle) | Tétouan | Jan–Dec 2017 | 10 min | kW | 3 |
-| UCI Smart Meters | Laâyoune | Sep 2022–May 2024 | 10 min | Amperes | 5 |
-| UCI Smart Meters | Boujdour | Sep 2022–May 2024 | 10 min | Amperes | 3 |
-| UCI Smart Meters | Foum El Oued | Sep 2022–May 2024 | 10 min | Amperes | 7 |
-| UCI Smart Meters | Marrakech | Jan 2023–Jan 2024 | 30 min | kW | 2 |
+| [SCADA Amendis — Kaggle](https://www.kaggle.com/datasets/fedesoriano/electric-power-consumption) | Tétouan | Jan–Dec 2017 | 10 min | kW | 3 |
+| [UCI Smart Meters (ID 1158)](https://archive.ics.uci.edu/dataset/1158) | Laâyoune | Sep 2022–May 2024 | 10 min | Amperes | 5 |
+| [UCI Smart Meters (ID 1158)](https://archive.ics.uci.edu/dataset/1158) | Boujdour | Sep 2022–May 2024 | 10 min | Amperes | 3 |
+| [UCI Smart Meters (ID 1158)](https://archive.ics.uci.edu/dataset/1158) | Foum El Oued | Sep 2022–May 2024 | 10 min | Amperes | 7 |
+| [UCI Smart Meters (ID 1158)](https://archive.ics.uci.edu/dataset/1158) | Marrakech | Jan 2023–Jan 2024 | 30 min | kW | 2 |
 
-**61,944 hourly points** after resampling, cleaning, and per-city normalization.
+#### Weather Data
+
+| Source | Coverage | Variables | Access |
+|---|---|---|---|
+| [Open-Meteo Archive API](https://open-meteo.com/) | All 5 cities · matched to load period | Temperature, Humidity, Wind Speed, Solar Radiation, Cloud Cover | Free · No API key |
+| Tetouan CSV (embedded) | Tétouan 2017 only | Temperature, Humidity, Wind Speed, GHI, Diffuse Radiation | Bundled in Kaggle dataset |
+
+#### Calendar Data
+
+| Source | Coverage | Content |
+|---|---|---|
+| Bundled (`data/external/ma_holidays.csv`) | 2017–2024 | 117 dates · 9 fixed national holidays + 4 Islamic holidays × 8 years |
+
+**61,944 hourly points** after resampling, cleaning, and per-city normalization.  
+**43 features** total: 8 lags · 10 rolling stats · 13 calendar · 5 weather · 5 city dummies · 1 holiday flag · 1 target.
 
 ### Temporal Structure
 

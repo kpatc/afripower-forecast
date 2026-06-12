@@ -1,0 +1,32 @@
+data:
+  # Sources: data/raw/powerconsumption.csv (Tetouan 2017)
+  #          data/raw/Data Morocco.xlsx    (UCI 4 cities 2022-2024)
+  cities: ["tetouan", "laayoune", "boujdour", "foum_eloued", "marrakech"]
+  forecast_horizon: 7       # days ahead
+  frequency: "1H"           # hourly (resampled from 10/30-min raw)
+
+features:
+  lags: [1, 2, 3, 6, 12, 24, 48, 168]
+  rolling_windows: [6, 12, 24, 48, 168]
+
+models:
+  sarima:
+    order: [1, 1, 1]
+    seasonal_order: [1, 1, 1, 24]
+  xgboost:
+    n_estimators: 500
+    learning_rate: 0.05
+    max_depth: 6
+  lstm:
+    sequence_length: 168
+    hidden_size: 128
+    num_layers: 2
+    dropout: 0.2
+
+evaluation:
+  metrics: ["MAE", "RMSE", "MAPE", "coverage_80", "coverage_95"]
+  cv_folds: 5
+
+mlflow:
+  experiment_name: "afripower_forecast"
+  tracking_uri: "mlflow_runs"

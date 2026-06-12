@@ -119,8 +119,12 @@ def load_holidays(path: Path | None = None) -> pd.DatetimeIndex:
 
 def add_holiday_feature(df: pd.DataFrame) -> pd.DataFrame:
     holidays = load_holidays()
+    # Normalize index to date (tz-naive) for comparison with tz-naive holiday dates
+    normalized = df.index.normalize()
+    if normalized.tz is not None:
+        normalized = normalized.tz_localize(None)
     df = df.copy()
-    df["is_holiday"] = df.index.normalize().isin(holidays).astype(int)
+    df["is_holiday"] = normalized.isin(holidays).astype(int)
     return df
 
 
@@ -168,14 +172,16 @@ def attach_weather(
     """
     Attach weather data per city.
     Tetouan already has weather embedded; UCI cities get Open-Meteo data.
+    Drops NaN weather columns inherited from concat before joining.
     """
     frames = []
     for city, group in df.groupby("city", sort=False):
         group = group.copy()
         if city in weather_by_city:
             w = weather_by_city[city].resample("1h").mean()
-            # Prefix to avoid collision with Tetouan embedded columns
-            w = w.add_prefix("om_") if city == "tetouan" else w
+            # Drop columns that are already present (NaN placeholders from concat)
+            overlap = [c for c in w.columns if c in group.columns]
+            group = group.drop(columns=overlap)
             group = group.join(w, how="left")
         frames.append(group)
     return pd.concat(frames).sort_index()

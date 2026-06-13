@@ -173,11 +173,25 @@ MAE/RMSE in z-score units (normalised target). Coverage 80% = share of actuals i
 
 **LightGBM** achieves the best point-forecast accuracy, outperforming XGBoost by 5% on MAE. Gradient-boosted models benefit from the full multi-city feature set; SARIMA/Prophet are univariate Tétouan baselines.
 
-### Feature Importance
+### Feature Importance & SHAP Explainability
 
 ![Feature Importance](assets/feature_importance.png)
 
 > **Top drivers:** recent lags (t-1h, t-24h, t-168h) confirm strong load autocorrelation. Temperature and hour-of-day rank next, consistent with the U-shaped demand–temperature relationship in EDA.
+
+#### SHAP Summary — LightGBM
+
+![SHAP LightGBM Summary](assets/shap_lightgbm_summary.png)
+
+> Each dot is one test sample. Red = high feature value, blue = low. **lag_1h** dominates with SHAP values up to ±2 z-score units, followed by **lag_24h** (daily cycle) and **hour_cos** (time-of-day encoding).
+
+#### SHAP Waterfall — Single Forecast Step
+
+![SHAP Waterfall](assets/shap_lightgbm_waterfall.png)
+
+> Waterfall chart for the highest-load sample: shows exactly which features push the forecast above or below the model's expected value (E[f(x)]).
+
+Run `make shap` to regenerate all SHAP plots (summary · bar · waterfall) for both LightGBM and XGBoost.
 
 ---
 
@@ -307,6 +321,7 @@ Place the following files in `data/raw/` before training:
 
 ```bash
 make train       # preprocess + train all 5 models + MLflow logging
+make shap        # SHAP explainability plots → assets/shap_*.png
 make dashboard   # Streamlit → http://localhost:8501
 make api         # FastAPI   → http://localhost:8000/docs
 make test        # pytest

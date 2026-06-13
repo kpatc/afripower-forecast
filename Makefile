@@ -1,4 +1,4 @@
-.PHONY: setup data train api dashboard test clean
+.PHONY: setup data train shap api dashboard test clean
 
 PYTHON  := venv/bin/python
 PIP     := venv/bin/pip
@@ -15,6 +15,9 @@ data:
 
 train:
 	$(PYTHON) -m src.train_all
+
+shap:
+	$(PYTHON) -m src.evaluation.run_shap
 
 api:
 	venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload

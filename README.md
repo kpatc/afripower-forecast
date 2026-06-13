@@ -255,7 +255,19 @@ Start with `make api` → base URL **http://localhost:8000** · Swagger UI at **
 }
 ```
 
-### Quick examples
+### Swagger UI — Interactive Documentation
+
+The auto-generated Swagger UI at **http://localhost:8000/docs** lets you test every endpoint directly in the browser.
+
+#### `GET /cities` — available cities
+
+![API Cities](assets/api_get_cities.png)
+
+#### `POST /forecast` — 7-day probabilistic forecast
+
+![API Forecast](assets/api_forecast.png)
+
+### Quick curl examples
 
 ```bash
 # Health check

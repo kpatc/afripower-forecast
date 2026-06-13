@@ -174,6 +174,20 @@ Coverage 80% = fraction of actuals falling inside the [q10, q90] prediction inte
 
 **LightGBM** achieves the best point-forecast accuracy across all metrics, outperforming XGBoost by 5% on MAE and matching it on interval coverage. The gradient-boosted models benefit from the full multi-city feature set (lag features, rolling statistics, weather, calendar), while SARIMA/Prophet are constrained to univariate Tétouan data as univariate baselines.
 
+### 5.1 Forecast with Prediction Interval
+
+![Forecast Dashboard](assets/dashboard_forecast.png)
+
+### 5.2 Model Comparison — Dashboard View
+
+![Model Comparison](assets/dashboard_models_comparision.png)
+
+### 5.3 Feature Importance
+
+![Feature Importance](assets/feature_importance.png)
+
+> **Top drivers:** recent lag features (t-1h, t-24h, t-168h) dominate, confirming strong autocorrelation in load. Temperature and hour-of-day rank next, consistent with the U-shaped demand–temperature relationship observed in EDA.
+
 ---
 
 ## 6. Getting Started

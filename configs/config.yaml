@@ -29,4 +29,4 @@ evaluation:
 
 mlflow:
   experiment_name: "afripower_forecast"
-  tracking_uri: "mlflow_runs"
+  tracking_uri: "sqlite:///mlflow.db"

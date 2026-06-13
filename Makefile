@@ -14,9 +14,7 @@ data:
 	$(PYTHON) src/data/fetch_data.py
 
 train:
-	$(PYTHON) -m src.models.baseline
-	$(PYTHON) -m src.models.ml_models
-	$(PYTHON) -m src.models.deep_learning
+	$(PYTHON) -m src.train_all
 
 api:
 	venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload

@@ -5,6 +5,12 @@
 # (exclude only the .cache folder created by requests-cache)
 .cache/
 
+# Trained model artifacts — run `make train` to regenerate
+data/processed/*.pkl
+data/processed/*.pt
+mlflow.db
+.cache.sqlite
+
 # MLflow artifacts
 mlflow_runs/
 

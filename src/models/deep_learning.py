@@ -1,5 +1,6 @@
 """
-LSTM-based sequence forecasting model using PyTorch.
+LSTM-based sequence forecasting model (PyTorch).
+Target: load_norm column, moved to position 0 before training.
 """
 from __future__ import annotations
 
@@ -22,7 +23,14 @@ with open(ROOT / "configs" / "config.yaml") as f:
 mlflow.set_tracking_uri(CFG["mlflow"]["tracking_uri"])
 mlflow.set_experiment(CFG["mlflow"]["experiment_name"])
 
+TARGET = "load_norm"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def _reorder(df: pd.DataFrame) -> pd.DataFrame:
+    """Put load_norm first so target_idx=0 always holds."""
+    cols = [TARGET] + [c for c in df.columns if c != TARGET]
+    return df[cols]
 
 
 # ---------------------------------------------------------------------------
@@ -30,25 +38,21 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ---------------------------------------------------------------------------
 
 class TimeSeriesDataset(Dataset):
-    def __init__(
-        self,
-        data: np.ndarray,
-        seq_len: int,
-        horizon: int,
-        target_idx: int = 0,
-    ):
+    def __init__(self, data: np.ndarray, seq_len: int, horizon: int):
         self.data = data
         self.seq_len = seq_len
         self.horizon = horizon
-        self.target_idx = target_idx
 
     def __len__(self) -> int:
         return len(self.data) - self.seq_len - self.horizon + 1
 
     def __getitem__(self, idx: int):
         x = self.data[idx : idx + self.seq_len]
-        y = self.data[idx + self.seq_len : idx + self.seq_len + self.horizon, self.target_idx]
-        return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
+        y = self.data[idx + self.seq_len : idx + self.seq_len + self.horizon, 0]
+        return (
+            torch.tensor(x, dtype=torch.float32),
+            torch.tensor(y, dtype=torch.float32),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -56,20 +60,14 @@ class TimeSeriesDataset(Dataset):
 # ---------------------------------------------------------------------------
 
 class LSTMModel(nn.Module):
-    def __init__(
-        self,
-        input_size: int,
-        hidden_size: int = 128,
-        num_layers: int = 2,
-        dropout: float = 0.2,
-        horizon: int = 168,
-    ):
+    def __init__(self, input_size: int, hidden_size: int, num_layers: int,
+                 dropout: float, horizon: int):
         super().__init__()
         self.lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
-            dropout=dropout,
+            dropout=dropout if num_layers > 1 else 0.0,
             batch_first=True,
         )
         self.fc = nn.Linear(hidden_size, horizon)
@@ -80,7 +78,7 @@ class LSTMModel(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# Trainer
+# Forecaster
 # ---------------------------------------------------------------------------
 
 class LSTMForecaster:
@@ -95,14 +93,14 @@ class LSTMForecaster:
             dropout=cfg["dropout"],
             horizon=horizon,
         ).to(DEVICE)
-        self.scaler_mean: np.ndarray | None = None
-        self.scaler_std: np.ndarray | None = None
+        self.mean_: np.ndarray | None = None
+        self.std_:  np.ndarray | None = None
 
-    def _normalize(self, arr: np.ndarray) -> np.ndarray:
-        return (arr - self.scaler_mean) / (self.scaler_std + 1e-8)
+    def _norm(self, arr: np.ndarray) -> np.ndarray:
+        return (arr - self.mean_) / (self.std_ + 1e-8)
 
-    def _denormalize_target(self, arr: np.ndarray) -> np.ndarray:
-        return arr * (self.scaler_std[0] + 1e-8) + self.scaler_mean[0]
+    def _denorm_target(self, arr: np.ndarray) -> np.ndarray:
+        return arr * (self.std_[0] + 1e-8) + self.mean_[0]
 
     def fit(
         self,
@@ -111,84 +109,57 @@ class LSTMForecaster:
         batch_size: int = 64,
         lr: float = 1e-3,
     ) -> LSTMForecaster:
-        data = train.values.astype(np.float32)
-        self.scaler_mean = data.mean(axis=0)
-        self.scaler_std = data.std(axis=0)
-        data = self._normalize(data)
+        df = _reorder(train)
+        data = df.values.astype(np.float32)
+        self.mean_ = data.mean(axis=0)
+        self.std_  = data.std(axis=0)
+        data = self._norm(data)
 
         dataset = TimeSeriesDataset(data, self.seq_len, self.horizon)
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
-        criterion = nn.MSELoss()
+        loader  = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        optim   = torch.optim.Adam(self.model.parameters(), lr=lr)
+        loss_fn = nn.MSELoss()
 
-        logger.info(f"Training LSTM for {epochs} epochs on {DEVICE} …")
+        logger.info(f"LSTM — training {epochs} epochs on {DEVICE} "
+                    f"({len(dataset)} sequences) …")
         self.model.train()
         for epoch in range(1, epochs + 1):
-            total_loss = 0.0
-            for X_batch, y_batch in loader:
-                X_batch, y_batch = X_batch.to(DEVICE), y_batch.to(DEVICE)
-                optimizer.zero_grad()
-                pred = self.model(X_batch)
-                loss = criterion(pred, y_batch)
+            total = 0.0
+            for xb, yb in loader:
+                xb, yb = xb.to(DEVICE), yb.to(DEVICE)
+                optim.zero_grad()
+                loss = loss_fn(self.model(xb), yb)
                 loss.backward()
-                optimizer.step()
-                total_loss += loss.item()
-            avg = total_loss / len(loader)
+                optim.step()
+                total += loss.item()
             if epoch % 5 == 0:
-                logger.info(f"  Epoch {epoch}/{epochs}  loss={avg:.4f}")
+                logger.info(f"  epoch {epoch:3d}/{epochs}  loss={total/len(loader):.4f}")
 
         logger.success("LSTM training complete.")
         return self
 
     def predict(self, context: pd.DataFrame) -> np.ndarray:
-        data = context.values.astype(np.float32)
-        data = self._normalize(data)
-        x = torch.tensor(data[-self.seq_len :][None], dtype=torch.float32).to(DEVICE)
+        df = _reorder(context)
+        data = self._norm(df.values.astype(np.float32))
+        x = torch.tensor(data[-self.seq_len:][None], dtype=torch.float32).to(DEVICE)
         self.model.eval()
         with torch.no_grad():
             pred = self.model(x).cpu().numpy()[0]
-        return self._denormalize_target(pred)
+        return self._denorm_target(pred)
 
     def save(self, path: Path) -> None:
         torch.save({
             "state_dict": self.model.state_dict(),
-            "scaler_mean": self.scaler_mean,
-            "scaler_std": self.scaler_std,
+            "mean": self.mean_,
+            "std":  self.std_,
         }, path)
-        logger.info(f"LSTM model saved → {path}")
+        logger.info(f"LSTM saved → {path}")
 
     @classmethod
     def load(cls, path: Path, input_size: int, horizon: int = 168) -> LSTMForecaster:
         obj = cls(input_size=input_size, horizon=horizon)
         ckpt = torch.load(path, map_location=DEVICE)
         obj.model.load_state_dict(ckpt["state_dict"])
-        obj.scaler_mean = ckpt["scaler_mean"]
-        obj.scaler_std = ckpt["scaler_std"]
+        obj.mean_ = ckpt["mean"]
+        obj.std_  = ckpt["std"]
         return obj
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from src.data.fetch_data import fetch_entsoe_load, fetch_openmeteo_weather
-    from src.data.preprocess import build_features, train_test_split_temporal
-    from src.evaluation.metrics import evaluate_forecasts
-
-    load = fetch_entsoe_load()
-    weather = fetch_openmeteo_weather()
-    df = build_features(load, weather)
-    train_df, test_df = train_test_split_temporal(df)
-
-    horizon = CFG["data"]["forecast_horizon"] * 24
-
-    with mlflow.start_run(run_name="lstm"):
-        forecaster = LSTMForecaster(input_size=train_df.shape[1], horizon=horizon)
-        forecaster.fit(train_df, epochs=30)
-        preds_raw = forecaster.predict(test_df)
-        preds = pd.Series(preds_raw, index=test_df.index[:horizon])
-        metrics = evaluate_forecasts(test_df["load_MW"].iloc[:horizon], preds)
-        mlflow.log_metrics(metrics)
-        mlflow.log_params(CFG["models"]["lstm"])
-        forecaster.save(ROOT / "data" / "processed" / "lstm.pt")

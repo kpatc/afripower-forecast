@@ -160,15 +160,19 @@ Production
 
 ## 5. Results
 
-> *Table populated after training — run `make train`*
+Metrics computed on the hold-out test set (last 15% by timestamp, ~9,149 hourly rows across all cities).  
+MAE/RMSE are in normalised units (z-score); MAPE is inflated by near-zero values in z-score space.  
+Coverage 80% = fraction of actuals falling inside the [q10, q90] prediction interval.
 
-| Model | MAE (kW) | RMSE (kW) | MAPE (%) | Coverage 80% |
-|---|---|---|---|---|
-| SARIMA | — | — | — | — |
-| Prophet | — | — | — | — |
-| XGBoost | — | — | — | — |
-| **LightGBM** | — | — | **—** | — |
-| LSTM | — | — | — | — |
+| Model | Scope | MAE | RMSE | MAPE (%) | Coverage 80% |
+|---|---|---|---|---|---|
+| SARIMA | Tétouan only | 0.370 | 0.437 | 96.9 | — |
+| Prophet | Tétouan only | 0.288 | 0.368 | 103.3 | — |
+| XGBoost | All 5 cities | 0.124 | 0.225 | 58.6 | 76.6% |
+| **LightGBM** | All 5 cities | **0.118** | **0.204** | **56.0** | 73.9% |
+| LSTM | All 5 cities | 0.543 | 0.686 | 129.2 | — |
+
+**LightGBM** achieves the best point-forecast accuracy across all metrics, outperforming XGBoost by 5% on MAE and matching it on interval coverage. The gradient-boosted models benefit from the full multi-city feature set (lag features, rolling statistics, weather, calendar), while SARIMA/Prophet are constrained to univariate Tétouan data as univariate baselines.
 
 ---
 

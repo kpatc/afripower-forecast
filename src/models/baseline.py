@@ -1,5 +1,7 @@
 """
 Baseline forecasting models: SARIMA and Prophet.
+Trained on Tétouan city only (univariate, full-year 2017 dataset).
+Target: load_norm (z-score normalised).
 """
 from __future__ import annotations
 
@@ -7,7 +9,6 @@ from pathlib import Path
 
 import joblib
 import mlflow
-import numpy as np
 import pandas as pd
 import yaml
 from loguru import logger
@@ -32,43 +33,44 @@ class SARIMAForecaster:
         sarima_cfg = CFG["models"]["sarima"]
         self.order = tuple(sarima_cfg["order"])
         self.seasonal_order = tuple(sarima_cfg["seasonal_order"])
-        self.model = None
         self.result = None
 
     def fit(self, train: pd.Series) -> SARIMAForecaster:
-        logger.info("Fitting SARIMA model …")
-        self.model = SARIMAX(
+        logger.info(f"SARIMA — fitting on {len(train)} points …")
+        model = SARIMAX(
             train,
             order=self.order,
             seasonal_order=self.seasonal_order,
             enforce_stationarity=False,
             enforce_invertibility=False,
         )
-        self.result = self.model.fit(disp=False)
+        self.result = model.fit(disp=False)
         logger.success("SARIMA fitted.")
         return self
 
     def predict(self, steps: int) -> pd.DataFrame:
-        forecast = self.result.get_forecast(steps=steps)
-        mean = forecast.predicted_mean
-        ci = forecast.conf_int(alpha=0.2)   # 80 % CI
-        ci95 = forecast.conf_int(alpha=0.05) # 95 % CI
+        fc = self.result.get_forecast(steps=steps)
+        mean = fc.predicted_mean
+        ci80 = fc.conf_int(alpha=0.20)
+        ci95 = fc.conf_int(alpha=0.05)
         return pd.DataFrame({
             "forecast": mean,
-            "lower_80": ci.iloc[:, 0],
-            "upper_80": ci.iloc[:, 1],
+            "lower_80": ci80.iloc[:, 0],
+            "upper_80": ci80.iloc[:, 1],
             "lower_95": ci95.iloc[:, 0],
             "upper_95": ci95.iloc[:, 1],
         })
 
     def save(self, path: Path) -> None:
-        joblib.dump(self.result, path)
-        logger.info(f"SARIMA model saved → {path}")
+        # remove_data=True strips training arrays → shrinks file from ~3 GB to ~KB
+        self.result.save(str(path), remove_data=True)
+        logger.info(f"SARIMA saved → {path}")
 
     @classmethod
     def load(cls, path: Path) -> SARIMAForecaster:
-        obj = cls()
-        obj.result = joblib.load(path)
+        from statsmodels.tsa.statespace.sarimax import SARIMAXResults
+        obj = cls.__new__(cls)
+        obj.result = SARIMAXResults.load(str(path))
         return obj
 
 
@@ -87,62 +89,29 @@ class ProphetForecaster:
         self.model.add_seasonality(name="monthly", period=30.5, fourier_order=5)
 
     def fit(self, train: pd.Series) -> ProphetForecaster:
-        df_prophet = train.reset_index()
-        df_prophet.columns = ["ds", "y"]
-        logger.info("Fitting Prophet model …")
-        self.model.fit(df_prophet)
+        df_p = train.reset_index()
+        df_p.columns = ["ds", "y"]
+        df_p["ds"] = df_p["ds"].dt.tz_localize(None)   # Prophet requires tz-naive
+        logger.info(f"Prophet — fitting on {len(df_p)} points …")
+        self.model.fit(df_p)
         logger.success("Prophet fitted.")
         return self
 
     def predict(self, steps: int, freq: str = "1h") -> pd.DataFrame:
         future = self.model.make_future_dataframe(periods=steps, freq=freq)
-        forecast = self.model.predict(future).tail(steps).set_index("ds")
+        fc = self.model.predict(future).tail(steps).set_index("ds")
         return pd.DataFrame({
-            "forecast": forecast["yhat"],
-            "lower_80": forecast["yhat_lower"],
-            "upper_80": forecast["yhat_upper"],
+            "forecast": fc["yhat"],
+            "lower_80": fc["yhat_lower"],
+            "upper_80": fc["yhat_upper"],
         })
 
     def save(self, path: Path) -> None:
         joblib.dump(self.model, path)
-        logger.info(f"Prophet model saved → {path}")
+        logger.info(f"Prophet saved → {path}")
 
     @classmethod
     def load(cls, path: Path) -> ProphetForecaster:
         obj = cls.__new__(cls)
         obj.model = joblib.load(path)
         return obj
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-if __name__ == "__main__":
-    from src.data.preprocess import build_features, train_test_split_temporal
-    from src.data.fetch_data import fetch_entsoe_load, fetch_openmeteo_weather
-    from src.evaluation.metrics import evaluate_forecasts
-
-    load = fetch_entsoe_load()
-    weather = fetch_openmeteo_weather()
-    df = build_features(load, weather)
-    train_df, test_df = train_test_split_temporal(df)
-
-    horizon = CFG["data"]["forecast_horizon"] * 24
-
-    with mlflow.start_run(run_name="sarima"):
-        sarima = SARIMAForecaster()
-        sarima.fit(train_df["load_MW"])
-        preds = sarima.predict(horizon)
-        metrics = evaluate_forecasts(test_df["load_MW"].iloc[:horizon], preds["forecast"])
-        mlflow.log_params({"order": sarima.order, "seasonal_order": sarima.seasonal_order})
-        mlflow.log_metrics(metrics)
-        sarima.save(ROOT / "data" / "processed" / "sarima.pkl")
-
-    with mlflow.start_run(run_name="prophet"):
-        prophet = ProphetForecaster()
-        prophet.fit(train_df["load_MW"])
-        preds = prophet.predict(horizon)
-        metrics = evaluate_forecasts(test_df["load_MW"].iloc[:horizon], preds["forecast"])
-        mlflow.log_metrics(metrics)
-        prophet.save(ROOT / "data" / "processed" / "prophet.pkl")

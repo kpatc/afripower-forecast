@@ -161,8 +161,7 @@ Production
 ## 5. Results
 
 Metrics computed on the hold-out test set (last 15% by timestamp, ~9,149 hourly rows across all cities).  
-MAE/RMSE are in normalised units (z-score); MAPE is inflated by near-zero values in z-score space.  
-Coverage 80% = fraction of actuals falling inside the [q10, q90] prediction interval.
+MAE/RMSE in z-score units (normalised target). Coverage 80% = share of actuals inside the [q10, q90] PI.
 
 | Model | Scope | MAE | RMSE | MAPE (%) | Coverage 80% |
 |---|---|---|---|---|---|
@@ -172,81 +171,161 @@ Coverage 80% = fraction of actuals falling inside the [q10, q90] prediction inte
 | **LightGBM** | All 5 cities | **0.118** | **0.204** | **56.0** | 73.9% |
 | LSTM | All 5 cities | 0.543 | 0.686 | 129.2 | — |
 
-**LightGBM** achieves the best point-forecast accuracy across all metrics, outperforming XGBoost by 5% on MAE and matching it on interval coverage. The gradient-boosted models benefit from the full multi-city feature set (lag features, rolling statistics, weather, calendar), while SARIMA/Prophet are constrained to univariate Tétouan data as univariate baselines.
+**LightGBM** achieves the best point-forecast accuracy, outperforming XGBoost by 5% on MAE. Gradient-boosted models benefit from the full multi-city feature set; SARIMA/Prophet are univariate Tétouan baselines.
 
-### 5.1 Forecast with Prediction Interval
-
-![Forecast Dashboard](assets/dashboard_forecast.png)
-
-### 5.2 Model Comparison — Dashboard View
-
-![Model Comparison](assets/dashboard_models_comparision.png)
-
-### 5.3 Feature Importance
+### Feature Importance
 
 ![Feature Importance](assets/feature_importance.png)
 
-> **Top drivers:** recent lag features (t-1h, t-24h, t-168h) dominate, confirming strong autocorrelation in load. Temperature and hour-of-day rank next, consistent with the U-shaped demand–temperature relationship observed in EDA.
+> **Top drivers:** recent lags (t-1h, t-24h, t-168h) confirm strong load autocorrelation. Temperature and hour-of-day rank next, consistent with the U-shaped demand–temperature relationship in EDA.
 
 ---
 
-## 6. Getting Started
+## 6. Executive Dashboard
+
+Start with `make dashboard` → opens at **http://localhost:8501**
+
+The dashboard exposes four tabs:
+
+| Tab | Content |
+|---|---|
+| 📈 **Forecast** | City selector · model selector · J+1 to J+7 forecast ribbon with 80% prediction interval |
+| 🔍 **EDA** | Full gallery of 9 exploratory visualizations |
+| 🏆 **Model Comparison** | MAE/RMSE bar chart + PI coverage chart for all 5 models |
+| 🔬 **Feature Importance** | Top-20 feature rankings for LightGBM and XGBoost |
+
+### Forecast Tab
+
+![Forecast Dashboard](assets/dashboard_forecast.png)
+
+### Model Comparison Tab
+
+![Model Comparison](assets/dashboard_models_comparision.png)
+
+---
+
+## 7. REST API
+
+Start with `make api` → base URL **http://localhost:8000** · Swagger UI at **http://localhost:8000/docs**
+
+### Endpoints
+
+| Method | URI | Description |
+|---|---|---|
+| `GET` | `/health` | Liveness check — lists loaded models and feature status |
+| `GET` | `/cities` | Returns the 5 available city keys and labels |
+| `GET` | `/models` | Lists trained models available for inference |
+| `POST` | `/forecast` | **Main endpoint** — probabilistic hourly forecast in kW |
+| `GET` | `/forecast/latest` | Same as POST but GET-friendly (query params) |
+| `GET` | `/docs` | Interactive Swagger UI |
+| `GET` | `/redoc` | ReDoc API documentation |
+
+### POST `/forecast` — Request
+
+```json
+{
+  "city": "tetouan",
+  "model": "lightgbm",
+  "horizon_days": 7
+}
+```
+
+**`city`** — one of: `tetouan` · `laayoune` · `boujdour` · `foum_eloued` · `marrakech`  
+**`model`** — one of: `lightgbm` · `xgboost`  
+**`horizon_days`** — integer 1–7
+
+### POST `/forecast` — Response
+
+```json
+{
+  "city": "marrakech",
+  "city_label": "Marrakech",
+  "model": "lightgbm",
+  "horizon_days": 1,
+  "generated_at": "2026-06-13T10:20:40Z",
+  "n_points": 24,
+  "forecasts": [
+    {
+      "timestamp": "2023-11-16T07:00:00+00:00",
+      "forecast_kW": 1163.98,
+      "lower_80_kW": 1006.11,
+      "upper_80_kW": 1300.25
+    }
+  ]
+}
+```
+
+### Quick examples
+
+```bash
+# Health check
+curl http://localhost:8000/health
+
+# 7-day LightGBM forecast for Marrakech
+curl -X POST http://localhost:8000/forecast \
+  -H "Content-Type: application/json" \
+  -d '{"city": "marrakech", "model": "lightgbm", "horizon_days": 7}'
+
+# Same via GET (browser/curl friendly)
+curl "http://localhost:8000/forecast/latest?city=laayoune&model=xgboost&horizon_days=3"
+```
+
+---
+
+## 8. Getting Started
 
 ### Installation
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/kpatc/afripower-forecast
 cd afripower-forecast
-make setup          # creates venv + installs all dependencies
+make setup
 ```
 
 ### Data
 
-Place the following files in `data/raw/`:
-- `powerconsumption.csv` — [Tétouan · Kaggle](https://www.kaggle.com/datasets/fedesoriano/electric-power-consumption)
-- `Data Morocco.xlsx` — [UCI Smart Meters Morocco](https://archive.ics.uci.edu/dataset/1158)
+Place the following files in `data/raw/` before training:
 
-### Run the full pipeline
+| File | Source |
+|---|---|
+| `powerconsumption.csv` | [Tétouan · Kaggle](https://www.kaggle.com/datasets/fedesoriano/electric-power-consumption) |
+| `Data Morocco.xlsx` | [UCI Smart Meters Morocco (ID 1158)](https://archive.ics.uci.edu/dataset/1158) |
 
-```bash
-make train          # train all 5 models + MLflow logging
-make api            # FastAPI → http://localhost:8000/docs
-make dashboard      # Streamlit → http://localhost:8501
-make test           # pytest
-```
-
-### API example
+### Full pipeline
 
 ```bash
-curl -X POST http://localhost:8000/forecast \
-  -H "Content-Type: application/json" \
-  -d '{"horizon_days": 7, "model": "lightgbm"}'
+make train       # preprocess + train all 5 models + MLflow logging
+make dashboard   # Streamlit → http://localhost:8501
+make api         # FastAPI   → http://localhost:8000/docs
+make test        # pytest
 ```
 
 ---
 
-## 7. Project Structure
+## 9. Project Structure
 
 ```
 afripower-forecast/
-├── assets/                   ← EDA visualizations
-├── data/raw/                 ← raw data files (git-ignored)
-├── data/processed/           ← features.parquet, norm_stats.csv
-├── notebooks/                ← EDA · Feature Eng · Models · Evaluation
+├── assets/                   ← EDA charts + dashboard screenshots
+├── data/
+│   ├── raw/                  ← source CSV / Excel / weather parquets
+│   ├── processed/            ← features.parquet · norm_stats.csv
+│   └── external/             ← ma_holidays.csv
 ├── src/
 │   ├── data/                 ← fetch_data.py · preprocess.py
 │   ├── models/               ← baseline · ml_models · deep_learning
-│   ├── evaluation/           ← metrics · SHAP explainability
-│   └── visualization/        ← plots.py
-├── api/main.py               ← FastAPI endpoint
+│   ├── evaluation/           ← metrics.py
+│   ├── visualization/        ← plots.py
+│   └── train_all.py          ← unified training pipeline
+├── api/main.py               ← FastAPI REST service
 ├── dashboard/app.py          ← Streamlit executive dashboard
-├── configs/config.yaml       ← centralized hyperparameters
-└── Makefile                  ← make setup / train / api / dashboard / test
+├── configs/config.yaml       ← hyperparameters + MLflow config
+└── Makefile                  ← setup · train · api · dashboard · test
 ```
 
 ---
 
-## 8. Tech Stack
+## 10. Tech Stack
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![XGBoost](https://img.shields.io/badge/XGBoost-2.0-orange)
